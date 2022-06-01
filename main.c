@@ -5,6 +5,12 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#ifndef NB_THREADS
+#define NB_THREADS 5
+#endif
+
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
 void error(const char *msg) {
     perror(msg);
     exit(EXIT_FAILURE);
@@ -14,12 +20,13 @@ void *serverop(void *sockfd) {
     int newsockfd, n;
     char buffer[256];
     struct sockaddr_storage client_addr;
-    socklen_t client_addr_size;
+    socklen_t client_addr_size = sizeof client_addr;
 
     // Accept a connection - blocks until a connection is ready to be accepted
     // Get back a new file descriptor to communicate on
-    client_addr_size = sizeof client_addr;
+    pthread_mutex_lock(&lock);
     newsockfd = accept(*(int *)sockfd, (struct sockaddr*)&client_addr, &client_addr_size);
+    pthread_mutex_unlock(&lock);
     if (newsockfd < 0) error("accept");
 
     // Read characters from the connection, then process
@@ -37,14 +44,10 @@ void *serverop(void *sockfd) {
     return NULL;
 }
 
-pthread_mutex_t lock;
-
 int main(int argc, char *argv[]) {
-    int sockfd, newsockfd, n, re, s;
-    char buffer[256];
+    int sockfd, re, s;
     struct addrinfo hints, *res;
-    struct sockaddr_storage client_addr;
-    socklen_t client_addr_size;
+    pthread_t pids[NB_THREADS];
 
     if (argc < 2) {
         fprintf(stderr, "ERROR, no port provided\n");
@@ -77,22 +80,19 @@ int main(int argc, char *argv[]) {
     // Listen on socket - means we're ready to accept connections,
     // incoming connection requests will be queued, man 3 listen
     if (listen(sockfd, 5) < 0) error("listen");
+//
+//    if (pthread_mutex_init(&lock, NULL)) {
+//        fprintf(stderr, "mutex init failed\n");
+//        exit(EXIT_FAILURE);
+//    }
 
-    int nbthreads = 5;
-    pthread_t pids[nbthreads];
-
-    if (pthread_mutex_init(&lock, NULL)) {
-        fprintf(stderr, "mutex init failed\n");
-        exit(EXIT_FAILURE);
-    }
-
-    for (int i = 0; i < nbthreads; i++) {
+    for (int i = 0; i < NB_THREADS; i++) {
         if (pthread_create(&pids[i], NULL, serverop, (void *)&sockfd)) {
             fprintf(stderr, "Error creating thread %d\n", i);
             exit(EXIT_FAILURE);
         }
     }
-    for (int i = 0; i < nbthreads; i++) {
+    for (int i = 0; i < NB_THREADS; i++) {
         if (pthread_join(pids[i], NULL)) {
             fprintf(stderr, "Error joining thread %d\n", i);
             exit(EXIT_FAILURE);
