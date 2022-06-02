@@ -1,0 +1,1 @@
+GET /dummy.js HTTP/1.1
